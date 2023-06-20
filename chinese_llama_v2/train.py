@@ -214,23 +214,25 @@ def make_train_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: s
 
 
 @dataclass
-class DataCollatorForSupervisedDataset(object):
+class DataCollatorForSupervisedDataset:
     """Collate examples for supervised fine-tuning."""
 
-    tokenizer: transformers.PreTrainedTokenizer
+    # tokenizer: transformers.PreTrainedTokenizer
+    def __init__(self, pad_token_id):
+        self.pad_token_id = pad_token_id
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         input_ids, labels = tuple(
             [instance[key] for instance in instances] for key in ("input_ids", "labels"))
         input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+            [torch.tensor(input) for input in input_ids], batch_first=True, padding_value=self.pad_token_id
         )
         labels = torch.nn.utils.rnn.pad_sequence(
-            labels, batch_first=True, padding_value=IGNORE_INDEX)
+            [torch.tensor(label) for label in labels], batch_first=True, padding_value=IGNORE_INDEX)
         return dict(
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+            attention_mask=input_ids.ne(self.pad_token_id),
         )
 
 
@@ -240,7 +242,7 @@ def train():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
     lora_config = LoraConfig(
-        r=16,
+        r=8,
         lora_alpha=32,
         lora_dropout=0.05,
         bias="none",
@@ -264,15 +266,23 @@ def train():
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
         padding_side="right",
-        use_fast=True,
+        use_fast=False,
     )
+
+    tokenizer.add_special_tokens(
+            {
+                "pad_token": "[pad]"
+            }
+        )
 
     train_dataset = make_train_dataset(
         tokenizer=tokenizer, data_path=data_args.data_path)
 
-    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model,
-                                           label_pad_token_id=IGNORE_INDEX
-                                           )
+    # data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model,
+    #                                        label_pad_token_id=IGNORE_INDEX
+    #                                        )
+
+    data_collator = DataCollatorForSupervisedDataset(tokenizer.pad_token_id)
 
     trainer = Trainer(model=model,
                       tokenizer=tokenizer,
@@ -280,7 +290,7 @@ def train():
                       train_dataset=train_dataset,
                       eval_dataset=None,
                       data_collator=data_collator)
-    # trainer.train()
+    trainer.train()
     # trainer.save_state()
     # trainer.save_model(output_dir=training_args.output_dir)
     print("Saving last checkpoint of the model")
