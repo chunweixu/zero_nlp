@@ -241,7 +241,7 @@ def train():
         (ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
-    lora_config = LoraConfig(
+    peft_config = LoraConfig(
         r=8,
         lora_alpha=32,
         lora_dropout=0.05,
