@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence
 
+from accelerate import Accelerator
 import torch
 import transformers
 from torch.utils.data import Dataset
@@ -17,9 +18,14 @@ from functools import partial
 
 from accelerate import Accelerator
 from peft import LoraConfig, get_peft_model
+from transformers.trainer_callback import TrainerCallback
 
 logger = logging.getLogger(__name__)
 
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# torch.backends.cudnn.benchmark = True
+# torch.backends.cudnn.deterministic = True
+# torch.autograd.set_detect_anomaly(True)
 
 def get_all_datapath(dir_name: str) -> List[str]:
     all_file_list = []
@@ -34,8 +40,7 @@ def get_all_datapath(dir_name: str) -> List[str]:
     return all_file_list
 
 
-def load_dataset_from_path(data_path: Optional[str] = None,
-                           cache_dir: Optional[str] = "cache_data") -> Dataset:
+def load_dataset_from_path(data_path: Optional[str] = None) -> Dataset:
     all_file_list = get_all_datapath(data_path)
     data_files = {'train': all_file_list}
     extension = all_file_list[0].split(".")[-1]
@@ -45,7 +50,6 @@ def load_dataset_from_path(data_path: Optional[str] = None,
     raw_datasets = load_dataset(
         extension,
         data_files=data_files,
-        cache_dir=cache_dir,
     )['train']
     return raw_datasets
 
@@ -208,7 +212,7 @@ def make_train_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: s
         function=generate_sources_targets_p,
         batched=True,
         desc="Running tokenizer on train dataset",
-        num_proc=4
+        num_proc=30
     )
     return dataset
 
@@ -235,6 +239,14 @@ class DataCollatorForSupervisedDataset:
             attention_mask=input_ids.ne(self.pad_token_id),
         )
 
+class PeftSavingCallback(TrainerCallback):
+    def on_save(self, args, state, control, **kwargs):
+        if args.should_save:
+            checkpoint_path = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+            kwargs["model"].save_pretrained(checkpoint_path)
+
+            if "pytorch_model.bin" in os.listdir(checkpoint_path):
+                os.remove(os.path.join(checkpoint_path, "pytorch_model.bin"))
 
 def train():
     parser = transformers.HfArgumentParser(
@@ -252,9 +264,8 @@ def train():
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
-        device_map='auto',
+        device_map={"": Accelerator().process_index},
         torch_dtype='auto'
-
     )
     
     model = get_peft_model(model, peft_config)
@@ -289,6 +300,7 @@ def train():
                       args=training_args,
                       train_dataset=train_dataset,
                       eval_dataset=None,
+                      callbacks = [PeftSavingCallback],
                       data_collator=data_collator)
     trainer.train()
     # trainer.save_state()

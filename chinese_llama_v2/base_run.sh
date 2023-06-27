@@ -1,19 +1,21 @@
-accelerate launch python train.py \
+accelerate launch train.py \
     --model_name_or_path /root/autodl-tmp/llama-chinese-7b \
-    --data_path data_proj/opendata \
-    --bf16 False \
-    --output_dir /root/autodl-tmp/output_dir \
+    --data_path /root/autodl-tmp/opendata \
+    --fp16 False \
+    --output_dir /root/autodl-tmp/output_dir_test \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 1 \
-    --per_device_eval_batch_size 1 \
-    --gradient_accumulation_steps 8 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 4 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
-    --save_steps 20 \
+    --save_steps 200 \
     --save_total_limit 1 \
     --learning_rate 2e-5 \
-    --logging_steps 10 \
+    --logging_steps 100 \
     --tf32 False \
-    --run_name "chines-llama-7b-sft", \
-    --report_to "wandb", \
+    --run_name "chines-llama-7b-sft" \
+    --report_to "wandb" \
+    --gradient_checkpointing False \
+    --ddp_find_unused_parameters False \
     --model_max_length 2048
